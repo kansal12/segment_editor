@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Segment Editor</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- WaveSurfer.js -->
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/timeline.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Segment Editor</h1>
+            <div class="header-actions">
+                <span id="status" class="status"></span>
+                <button id="undoBtn" class="btn btn-secondary" disabled>Undo</button>
+                <button id="saveBtn" class="btn btn-primary">Save</button>
+            </div>
+        </header>
+
+        <!-- Chunk Navigation -->
+        <nav class="chunk-nav">
+            <button id="prevChunkBtn" class="btn btn-nav">&lt; Prev</button>
+            <span class="chunk-info">
+                Chunk <span id="currentChunk">1</span> of <span id="totalChunks">26</span>
+            </span>
+            <button id="nextChunkBtn" class="btn btn-nav">Next &gt;</button>
+            <span id="chunkPath" class="chunk-path" title=""></span>
+            <div class="chunk-jump">
+                <label>Jump to segment:</label>
+                <input type="number" id="jumpSegmentInput" min="1" placeholder="#">
+                <button id="jumpSegmentBtn" class="btn btn-small">Go</button>
+            </div>
+        </nav>
+
+        <!-- Waveform Section -->
+        <section class="waveform-section">
+            <div id="waveform"></div>
+            <div id="timeline"></div>
+            <div class="playback-controls">
+                <button id="playPauseBtn" class="btn btn-play">Play</button>
+                <button id="playSelectedBtn" class="btn btn-secondary">Play Selected</button>
+                <span class="time-display">
+                    <span id="currentTime">00:00.00</span> / <span id="duration">00:00.00</span>
+                </span>
+                <div class="zoom-controls">
+                    <button id="zoomOutBtn" class="btn btn-small">-</button>
+                    <span>Zoom</span>
+                    <button id="zoomInBtn" class="btn btn-small">+</button>
+                    <button id="zoomFitBtn" class="btn btn-small">Fit</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Segments Table -->
+        <section class="segments-section">
+            <h2>Segments</h2>
+            <div class="table-container">
+                <table id="segmentsTable">
+                    <thead>
+                        <tr>
+                            <th class="col-id">#</th>
+                            <th class="col-start">Start</th>
+                            <th class="col-end">End</th>
+                            <th class="col-text">Text</th>
+                        </tr>
+                    </thead>
+                    <tbody id="segmentsBody">
+                        <!-- Segments will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="selection-info">
+                <span id="selectedInfo">No segment selected</span>
+                <button id="deleteBtn" class="btn btn-danger" disabled>Delete Segment</button>
+            </div>
+        </section>
+
+        <!-- Keyboard Shortcuts Help -->
+        <footer class="footer">
+            <span class="shortcuts">
+                <kbd>Space</kbd> Play/Pause |
+                <kbd>&larr;</kbd><kbd>&rarr;</kbd> Prev/Next Segment |
+                <kbd>Enter</kbd> Play Selected |
+                <kbd>Delete</kbd> Delete Segment
+            </span>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
