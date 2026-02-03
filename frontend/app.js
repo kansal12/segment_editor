@@ -478,8 +478,10 @@ function renderTable() {
             row.classList.add('selected');
         }
 
-        const localStart = segment.start_sec - chunkStart;
-        const localEnd = segment.end_sec - chunkStart;
+        // const localStart = segment.start_sec - chunkStart;
+        // const localEnd = segment.end_sec - chunkStart;
+        const localStart = segment.start_sec ;
+        const localEnd = segment.end_sec ;
 
         row.innerHTML = `
             <td class="col-id">${segment.segment_id}</td>

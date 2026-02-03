@@ -146,6 +146,7 @@ class CSVService:
     def get_chunk_file_path(self, chunk_id: int) -> Optional[Path]:
         """Get the file path for a chunk's audio file."""
         chunk = self.get_chunk(chunk_id)
+        
         if chunk:
             return Path(chunk["file_path"])
         return None
