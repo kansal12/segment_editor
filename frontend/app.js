@@ -585,9 +585,11 @@ function renderTable() {
         const textCell = row.querySelector('.text-cell');
         textCell.addEventListener('dblclick', () => startTextEdit(textCell, segment));
 
-        // Double-click on text cell to edit
-        const timeCell = row.querySelector('.time-cell');
-        // textCell.addEventListener('dblclick', () => startTextEdit(timeCell, segment));
+        // Double-click time cells to edit
+        const timeCells = row.querySelectorAll('.time-cell');
+        timeCells.forEach(cell => {
+            cell.addEventListener('dblclick', () => startTimeEdit(cell, segment));
+        });
 
         elements.segmentsBody.appendChild(row);
     });
@@ -647,6 +649,62 @@ function startTextEdit(cell, segment) {
 
             // Save to server
             await saveSegmentUpdate(segment.segment_id, { text: newText });
+        }
+    };
+
+    input.addEventListener('blur', () => finishEdit(true));
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            finishEdit(true);
+        } else if (e.key === 'Escape') {
+            finishEdit(false);
+        }
+    });
+}
+
+// Text editing
+function startTimeEdit(cell, segment) {
+    if (cell.classList.contains('editing')) return;
+    const isStart = cell.classList.contains('col-start');
+
+    cell.classList.add('editing');
+    const originalTime = isStart? segment.start_sec : segment.end_sec ;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = originalTime.toFixed(2);
+
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finishEdit = async (save) => {
+        if (!cell.classList.contains('editing')) return;
+
+        const newTime = input.value;
+        cell.classList.remove('editing');
+        cell.textContent = save ? newTime : originalTime.toFixed(2);
+
+        if (save && newTime !== originalTime.toFixed(2)) {
+
+            // Save to undo stack
+            state.undoStack.push({
+                segmentId: segment.segment_id,
+                time: originalTime.toFixed(2),
+            });
+            elements.undoBtn.disabled = false;
+
+            // Update local state
+            if(isStart){
+                segment.start_time = parseFloat(newTime);
+            }else{
+                segment.end_time = parseFloat(newTime);
+            }
+
+            // Save to server
+            await saveSegmentUpdate(segment.segment_id, { start_time: segment.start_time, end_time: segment.end_time });
         }
     };
 
