@@ -43,10 +43,16 @@ const elements = {
     saveBtn: document.getElementById('saveBtn'),
     undoBtn: document.getElementById('undoBtn'),
     deleteBtn: document.getElementById('deleteBtn'),
+    projectName: document.getElementById('projectName'),
 };
 
 // API Functions
 const api = {
+    async getProject() {
+        const response = await fetch('/api/project');
+        return response.json();
+    },
+
     async getChunks() {
         const response = await fetch('/api/chunks');
         return response.json();
@@ -182,13 +188,18 @@ function createRegions() {
         const isGap = segment.gap_type && segment.gap_type !== '';
         const isSelected = segment.segment_id === state.selectedSegmentId;
 
-        state.regions.addRegion({
+        const region = state.regions.addRegion({
             id: segment.segment_id.toString(),
             start: Math.max(0, localStart),
             end: Math.min(state.wavesurfer.getDuration(), localEnd),
             color: isGap ? 'rgba(136, 136, 136, 0.3)' : 'rgba(79, 74, 133, 0.4)',
             drag: true,
             resize: true,
+        });
+
+        // Listen for live updates during drag/resize
+        region.on('update', () => {
+            updateTableRowLive(segment.segment_id, region);
         });
     });
 
@@ -613,6 +624,19 @@ function updateTableRow(segmentId) {
     row.querySelector('.col-end').textContent = localEnd.toFixed(2);
 }
 
+// Update table row live during drag (before state is updated)
+function updateTableRowLive(segmentId, region) {
+    const row = document.querySelector(`#segmentsBody tr[data-segment-id="${segmentId}"]`);
+    if (!row) return;
+
+    const chunkStart = state.currentChunk?.start_time || 0;
+    const liveStart = region.start + chunkStart;
+    const liveEnd = region.end + chunkStart;
+
+    row.querySelector('.col-start').textContent = liveStart.toFixed(2);
+    row.querySelector('.col-end').textContent = liveEnd.toFixed(2);
+}
+
 // Text editing
 function startTextEdit(cell, segment) {
     if (cell.classList.contains('editing')) return;
@@ -1027,6 +1051,10 @@ function setupEventListeners() {
 // Initialize application
 async function init() {
     try {
+        // Load project info
+        const projectData = await api.getProject();
+        elements.projectName.textContent = `- ${projectData.name}`;
+
         // Load chunks metadata
         const chunksData = await api.getChunks();
         state.chunks = chunksData.chunks;

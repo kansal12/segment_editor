@@ -37,6 +37,13 @@ body {
     font-weight: 600;
 }
 
+.project-name {
+    font-weight: 400;
+    color: #7f8c8d;
+    font-size: 1rem;
+    margin-left: 8px;
+}
+
 .header-actions {
     display: flex;
     align-items: center;

@@ -56,6 +56,16 @@ class SegmentResponse(BaseModel):
 
 # API Routes
 
+@app.get("/api/project")
+async def get_project_info():
+    """Get project information."""
+    project_path = Path(PROJECT_PATH)
+    return {
+        "name": project_path.name,
+        "path": str(project_path)
+    }
+
+
 @app.get("/api/segments")
 async def get_segments(chunk_id: Optional[int] = None):
     """Get all segments, optionally filtered by chunk_id."""
