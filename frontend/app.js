@@ -128,11 +128,11 @@ function initWaveSurfer() {
     });
 
     state.wavesurfer.on('audioprocess', () => {
-        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime()) + state.currentChunk?.start_time;
+        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime() + state.currentChunk?.start_time);
     });
 
     state.wavesurfer.on('seeking', () => {
-        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime()) + state.currentChunk?.start_time;
+        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime() + state.currentChunk?.start_time);
     });
 
     state.wavesurfer.on('play', () => {
