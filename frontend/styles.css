@@ -103,6 +103,15 @@ body {
     background: #c9302c;
 }
 
+.btn-warning {
+    background: #f0ad4e;
+    color: #000;
+}
+
+.btn-warning:hover:not(:disabled) {
+    background: #ec971f;
+}
+
 .btn-nav {
     background: #2a2a4a;
     color: white;
@@ -298,6 +307,16 @@ body {
 #segmentsTable tbody tr.gap {
     color: #888;
     font-style: italic;
+}
+
+#segmentsTable tbody tr.deleted {
+    text-decoration: line-through;
+    color: #666;
+    background: rgba(255, 0, 0, 0.1);
+}
+
+#segmentsTable tbody tr.deleted:hover {
+    background: rgba(255, 0, 0, 0.15);
 }
 
 .col-id {

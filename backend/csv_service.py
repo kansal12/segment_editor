@@ -22,6 +22,8 @@ class CSVService:
     def __init__(self, project_path: str):
         self.project_path = Path(project_path)
         self.segments_path = self.project_path / "transcriptions" / "segments.csv"
+        self.segments_original_path = self.project_path / "transcriptions" / "segments_original.csv"
+        self.segments_previous_path = self.project_path / "transcriptions" / "segments_previous.csv"
         self.chunks_meta_path = self.project_path / "chunks" / "chunks_metadata.csv"
         self.backup_dir = self.project_path / "transcriptions" / "backups"
 
@@ -33,7 +35,14 @@ class CSVService:
         """Load segments from CSV file."""
         if self._segments_df is None or force_reload:
             self._segments_df = pd.read_csv(self.segments_path)
+            # Create original backup if it doesn't exist (first time editing)
+            self._ensure_original_backup()
         return self._segments_df.copy()
+
+    def _ensure_original_backup(self):
+        """Create segments_original.csv if it doesn't exist."""
+        if not self.segments_original_path.exists() and self.segments_path.exists():
+            shutil.copy2(self.segments_path, self.segments_original_path)
 
     def load_chunks(self, force_reload: bool = False) -> pd.DataFrame:
         """Load chunks metadata from CSV file."""
@@ -132,9 +141,11 @@ class CSVService:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = self.backup_dir / f"segments_{timestamp}.csv"
 
-        # Copy current file to backup
+        # Copy current file to backup (timestamped and previous)
         if self.segments_path.exists():
             shutil.copy2(self.segments_path, backup_path)
+            # Also save as segments_previous.csv (last saved version)
+            shutil.copy2(self.segments_path, self.segments_previous_path)
 
         # Write to temp file first
         temp_path = self.segments_path.with_suffix(".tmp")

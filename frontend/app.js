@@ -128,11 +128,11 @@ function initWaveSurfer() {
     });
 
     state.wavesurfer.on('audioprocess', () => {
-        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime());
+        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime()) + state.currentChunk?.start_time;
     });
 
     state.wavesurfer.on('seeking', () => {
-        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime());
+        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime()) + state.currentChunk?.start_time;
     });
 
     state.wavesurfer.on('play', () => {
@@ -280,80 +280,164 @@ function selectSegment(segmentId) {
     const id = typeof segmentId === 'string' ? parseInt(segmentId) : segmentId;
     state.selectedSegmentId = id;
 
+    // Find the segment first
+    // Use == for type coercion since segment_id might be string or number
+    const segment = state.segments.find(s => s.segment_id == id);
+
+    // Enable/disable delete button immediately
+    const deleteBtn = document.getElementById('deleteBtn');
+    if (deleteBtn) {
+        // Disable if no segment found or if segment is already marked for deletion
+        deleteBtn.disabled = !segment || segment.markedForDeletion;
+    }
+
+    // Update selection info
+    if (segment) {
+        const duration = (segment.end_sec - segment.start_sec).toFixed(2);
+        const status = segment.markedForDeletion ? ' (marked for deletion)' : '';
+        elements.selectedInfo.textContent = `Selected: Segment ${id} | Duration: ${duration}s${status}`;
+    }
+
     // Update table selection
     document.querySelectorAll('#segmentsBody tr').forEach(row => {
         row.classList.toggle('selected', parseInt(row.dataset.segmentId) === id);
     });
 
-    // Highlight region
-    highlightRegion(id);
+    try {
+        // Highlight region
+        highlightRegion(id);
 
-    // Zoom and center waveform on the segment
-    zoomToSegment(id);
+        // Zoom and center waveform on the segment
+        zoomToSegment(id);
+    } catch (e) {
+        console.error('Error in selectSegment:', e);
+    }
 
-    // Update selection info and delete button
-    const segment = state.segments.find(s => s.segment_id === id);
+    // Scroll table row into view
     if (segment) {
-        const duration = (segment.end_sec - segment.start_sec).toFixed(2);
-        elements.selectedInfo.textContent = `Selected: Segment ${id} | Duration: ${duration}s`;
-        elements.deleteBtn.disabled = false;
-
-        // Scroll table row into view
         const row = document.querySelector(`#segmentsBody tr[data-segment-id="${id}"]`);
         if (row) {
             row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
-    } else {
-        elements.deleteBtn.disabled = true;
     }
 }
 
-// Delete the currently selected segment
+// Delete the currently selected segment (mark as deleted with strikethrough)
 function deleteSelectedSegment() {
     if (!state.selectedSegmentId) return;
 
     const segmentId = state.selectedSegmentId;
-    const segmentIndex = state.segments.findIndex(s => s.segment_id === segmentId);
+    // Use == for type coercion since segment_id might be string or number
+    const segmentIndex = state.segments.findIndex(s => s.segment_id == segmentId);
     if (segmentIndex === -1) return;
 
     const segment = state.segments[segmentIndex];
 
-    // Save to undo stack (store the full segment for restoration)
+    // If already deleted, do nothing
+    if (segment.markedForDeletion) return;
+
+    // Save to undo stack
     state.undoStack.push({
         type: 'delete',
-        segment: { ...segment },
-        index: segmentIndex,
+        segmentId: segmentId,
     });
     elements.undoBtn.disabled = false;
+
+    // Mark segment for deletion (don't remove yet)
+    segment.markedForDeletion = true;
 
     // Add to deleted segments list (for saving to server later)
     state.deletedSegments.push(segmentId);
 
-    // Remove from local segments array
-    state.segments.splice(segmentIndex, 1);
-
-    // Remove region from waveform
+    // Update region appearance (make it red/faded)
     const regions = state.regions.getRegions();
-    const region = regions.find(r => parseInt(r.id) === segmentId);
-    if (region) {
-        region.remove();
+    for (const region of regions) {
+        if (region.id === segmentId.toString()) {
+            region.setOptions({ color: 'rgba(255, 0, 0, 0.3)' });
+            break;
+        }
     }
 
-    // Clear selection
-    state.selectedSegmentId = null;
-    elements.selectedInfo.textContent = 'Segment deleted (undo available)';
-    elements.deleteBtn.disabled = true;
+    // Update table row with strikethrough
+    const row = document.querySelector(`#segmentsBody tr[data-segment-id="${segmentId}"]`);
+    if (row) {
+        row.classList.add('deleted');
+    }
 
-    // Re-render table
-    renderTable();
-
-    // Mark as having unsaved changes
+    // Update UI
+    elements.selectedInfo.textContent = 'Segment marked for deletion (undo available)';
     state.hasUnsavedChanges = true;
 
-    // Select next segment if available
-    if (state.segments.length > 0) {
-        const nextIndex = Math.min(segmentIndex, state.segments.length - 1);
-        selectSegment(state.segments[nextIndex].segment_id);
+    // Enable finalize button
+    const finalizeBtn = document.getElementById('finalizeBtn');
+    if (finalizeBtn) {
+        finalizeBtn.disabled = false;
+    }
+
+    // Move to next segment
+    const nextSegment = state.segments.find((s, i) => i > segmentIndex && !s.markedForDeletion);
+    const prevSegment = [...state.segments].reverse().find((s, i) => state.segments.length - 1 - i < segmentIndex && !s.markedForDeletion);
+    if (nextSegment) {
+        selectSegment(nextSegment.segment_id);
+    } else if (prevSegment) {
+        selectSegment(prevSegment.segment_id);
+    } else {
+        state.selectedSegmentId = null;
+        const deleteBtn = document.getElementById('deleteBtn');
+        if (deleteBtn) deleteBtn.disabled = true;
+    }
+}
+
+// Finalize deletions - actually remove marked segments
+async function finalizeDeletes() {
+    const deletedSegments = state.segments.filter(s => s.markedForDeletion);
+
+    if (deletedSegments.length === 0) {
+        setStatus('No segments to finalize', 'saved');
+        return;
+    }
+
+    setStatus('Finalizing deletions...', 'saving');
+
+    try {
+        // Delete from server
+        for (const segment of deletedSegments) {
+            await api.deleteSegment(segment.segment_id);
+        }
+
+        // Remove from local state
+        state.segments = state.segments.filter(s => !s.markedForDeletion);
+
+        // Remove regions from waveform
+        const regions = state.regions.getRegions();
+        for (const region of regions) {
+            const segmentId = parseInt(region.id);
+            if (deletedSegments.some(s => s.segment_id == segmentId)) {
+                region.remove();
+            }
+        }
+
+        // Clear deleted segments list
+        state.deletedSegments = [];
+
+        // Clear undo stack for deletions
+        state.undoStack = state.undoStack.filter(item => item.type !== 'delete');
+        elements.undoBtn.disabled = state.undoStack.length === 0;
+
+        // Re-render table
+        renderTable();
+
+        // Disable finalize button
+        const finalizeBtn = document.getElementById('finalizeBtn');
+        if (finalizeBtn) {
+            finalizeBtn.disabled = true;
+        }
+
+        setStatus(`Deleted ${deletedSegments.length} segment${deletedSegments.length > 1 ? 's' : ''}`, 'saved');
+        state.hasUnsavedChanges = false;
+    } catch (error) {
+        console.error('Failed to finalize deletions:', error);
+        setStatus('Failed to delete segments', 'error');
     }
 }
 
@@ -485,8 +569,8 @@ function renderTable() {
 
         row.innerHTML = `
             <td class="col-id">${segment.segment_id}</td>
-            <td class="col-start">${localStart.toFixed(2)}</td>
-            <td class="col-end">${localEnd.toFixed(2)}</td>
+            <td class="col-start time-cell">${localStart.toFixed(2)}</td>
+            <td class="col-end time-cell">${localEnd.toFixed(2)}</td>
             <td class="col-text text-cell" data-segment-id="${segment.segment_id}">${escapeHtml(segment.text || '')}</td>
         `;
 
@@ -501,6 +585,10 @@ function renderTable() {
         const textCell = row.querySelector('.text-cell');
         textCell.addEventListener('dblclick', () => startTextEdit(textCell, segment));
 
+        // Double-click on text cell to edit
+        const timeCell = row.querySelector('.time-cell');
+        // textCell.addEventListener('dblclick', () => startTextEdit(timeCell, segment));
+
         elements.segmentsBody.appendChild(row);
     });
 }
@@ -514,8 +602,10 @@ function updateTableRow(segmentId) {
     if (!row) return;
 
     const chunkStart = state.currentChunk?.start_time || 0;
-    const localStart = segment.start_sec - chunkStart;
-    const localEnd = segment.end_sec - chunkStart;
+    const localStart = segment.start_sec;
+    const localEnd = segment.end_sec ;
+    // const localStart = segment.start_sec - chunkStart;
+    // const localEnd = segment.end_sec - chunkStart;
 
     row.querySelector('.col-start').textContent = localStart.toFixed(2);
     row.querySelector('.col-end').textContent = localEnd.toFixed(2);
@@ -621,27 +711,50 @@ async function undo() {
 
     const lastChange = state.undoStack.pop();
 
-    // Handle delete undo (restore segment)
+    // Handle delete undo (unmark segment)
     if (lastChange.type === 'delete') {
-        const restoredSegment = lastChange.segment;
+        const segmentId = lastChange.segmentId;
+        const segment = state.segments.find(s => s.segment_id == segmentId);
 
-        // Remove from deleted segments list
-        const deletedIdx = state.deletedSegments.indexOf(restoredSegment.segment_id);
-        if (deletedIdx !== -1) {
-            state.deletedSegments.splice(deletedIdx, 1);
+        if (segment) {
+            // Unmark for deletion
+            segment.markedForDeletion = false;
+
+            // Remove from deleted segments list
+            const deletedIdx = state.deletedSegments.indexOf(segmentId);
+            if (deletedIdx !== -1) {
+                state.deletedSegments.splice(deletedIdx, 1);
+            }
+
+            // Restore region color
+            const regions = state.regions.getRegions();
+            for (const region of regions) {
+                if (region.id === segmentId.toString()) {
+                    const isGap = segment.gap_type && segment.gap_type !== '';
+                    region.setOptions({
+                        color: isGap ? 'rgba(136, 136, 136, 0.3)' : 'rgba(79, 74, 133, 0.4)'
+                    });
+                    break;
+                }
+            }
+
+            // Remove strikethrough from table row
+            const row = document.querySelector(`#segmentsBody tr[data-segment-id="${segmentId}"]`);
+            if (row) {
+                row.classList.remove('deleted');
+            }
+
+            // Update finalize button state
+            const hasDeleted = state.segments.some(s => s.markedForDeletion);
+            const finalizeBtn = document.getElementById('finalizeBtn');
+            if (finalizeBtn) {
+                finalizeBtn.disabled = !hasDeleted;
+            }
+
+            // Select the restored segment
+            selectSegment(segmentId);
+            elements.selectedInfo.textContent = `Restored: Segment ${segmentId}`;
         }
-
-        // Re-insert segment at original position
-        state.segments.splice(lastChange.index, 0, restoredSegment);
-
-        // Update UI
-        renderTable();
-        createRegions();
-
-        // Select the restored segment
-        selectSegment(restoredSegment.segment_id);
-
-        elements.selectedInfo.textContent = `Restored: Segment ${restoredSegment.segment_id}`;
     } else {
         // Handle edit undo
         const segment = state.segments.find(s => s.segment_id === lastChange.segmentId);
@@ -838,6 +951,11 @@ function setupEventListeners() {
     elements.undoBtn.addEventListener('click', undo);
 
     elements.deleteBtn.addEventListener('click', deleteSelectedSegment);
+
+    const finalizeBtn = document.getElementById('finalizeBtn');
+    if (finalizeBtn) {
+        finalizeBtn.addEventListener('click', finalizeDeletes);
+    }
 
     // Warn before leaving if unsaved changes
     window.addEventListener('beforeunload', (e) => {
