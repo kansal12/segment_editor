@@ -1051,9 +1051,12 @@ function setupEventListeners() {
 // Initialize application
 async function init() {
     try {
-        // Load project info
-        const projectData = await api.getProject();
-        elements.projectName.textContent = `- ${projectData.name}`;
+        // Load project info (non-blocking)
+        api.getProject().then(projectData => {
+            elements.projectName.textContent = projectData.name;
+        }).catch(err => {
+            console.warn('Could not load project info:', err);
+        });
 
         // Load chunks metadata
         const chunksData = await api.getChunks();
