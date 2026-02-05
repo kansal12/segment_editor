@@ -30,8 +30,7 @@ const elements = {
     segmentsBody: document.getElementById('segmentsBody'),
     currentChunk: document.getElementById('currentChunk'),
     totalChunks: document.getElementById('totalChunks'),
-    currentTime: document.getElementById('currentTime'),
-    duration: document.getElementById('duration'),
+    segmentTimeInfo: document.getElementById('segmentTimeInfo'),
     selectedInfo: document.getElementById('selectedInfo'),
     status: document.getElementById('status'),
     playPauseBtn: document.getElementById('playPauseBtn'),
@@ -100,9 +99,22 @@ const api = {
 
 // Utility Functions
 function formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = (seconds % 60).toFixed(2);
-    return `${mins.toString().padStart(2, '0')}:${secs.padStart(5, '0')}`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function updateSegmentTimeDisplay() {
+    if (!state.selectedSegmentId) {
+        elements.segmentTimeInfo.textContent = 'No segment selected';
+        return;
+    }
+    const segment = state.segments.find(s => s.segment_id === state.selectedSegmentId);
+    if (!segment) return;
+    const dur = segment.end_sec - segment.start_sec;
+    elements.segmentTimeInfo.textContent = `${formatTime(segment.start_sec)} - ${formatTime(segment.end_sec)}  (${formatTime(dur)})`;
 }
 
 function setStatus(message, type = '') {
@@ -143,16 +155,7 @@ function initWaveSurfer() {
 
     // WaveSurfer events
     state.wavesurfer.on('ready', () => {
-        elements.duration.textContent = formatTime(state.wavesurfer.getDuration());
         createRegions();
-    });
-
-    state.wavesurfer.on('audioprocess', () => {
-        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime() + state.currentChunk?.start_time);
-    });
-
-    state.wavesurfer.on('seeking', () => {
-        elements.currentTime.textContent = formatTime(state.wavesurfer.getCurrentTime() + state.currentChunk?.start_time);
     });
 
     state.wavesurfer.on('play', () => {
@@ -250,8 +253,9 @@ function handleRegionUpdate(region) {
     segment.start_sec = newStartSec;
     segment.end_sec = newEndSec;
 
-    // Update table
+    // Update table and time display
     updateTableRow(segmentId);
+    updateSegmentTimeDisplay();
 
     // Mark as having unsaved changes
     state.hasUnsavedChanges = true;
@@ -323,10 +327,12 @@ function selectSegment(segmentId) {
 
     // Update selection info
     if (segment) {
-        const duration = (segment.end_sec - segment.start_sec).toFixed(2);
         const status = segment.markedForDeletion ? ' (marked for deletion)' : '';
-        elements.selectedInfo.textContent = `Selected: Segment ${id} | Duration: ${duration}s${status}`;
+        elements.selectedInfo.textContent = `Selected: Segment ${id}${status}`;
     }
+
+    // Update time display
+    updateSegmentTimeDisplay();
 
     // Update table selection
     document.querySelectorAll('#segmentsBody tr').forEach(row => {

@@ -58,6 +58,7 @@ class CSVService:
         """Load chunks metadata from CSV file."""
         if self._chunks_df is None or force_reload:
             self._chunks_df = pd.read_csv(self.chunks_meta_path)
+            self._chunks_df = self._chunks_df.drop_duplicates(subset=["Chunk ID"], keep="first")
         return self._chunks_df.copy()
 
     def get_segments_by_chunk(self, chunk_id: int) -> list[dict]:
