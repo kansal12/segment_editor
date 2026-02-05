@@ -13,13 +13,30 @@ from pydantic import BaseModel
 from csv_service import CSVService
 
 # Configuration
-PROJECT_PATH = os.environ.get(
-    "SEGMENT_EDITOR_PROJECT_PATH",
-    "/storage6/dubbing_projects/fp"
-)
+PROJECTS_DIR = Path(os.environ.get(
+    "SEGMENT_EDITOR_PROJECTS_DIR",
+    "/storage6/dubbing_projects"
+))
 
-# Initialize service
-csv_service = CSVService(PROJECT_PATH)
+# Cache of CSVService instances per project
+_project_services: dict[str, CSVService] = {}
+
+
+def get_service(project_name: str) -> CSVService:
+    """Get or create a CSVService for the given project."""
+    if project_name in _project_services:
+        return _project_services[project_name]
+
+    project_path = PROJECTS_DIR / project_name
+    segments_path = project_path / "transcriptions" / "segments.csv"
+
+    if not segments_path.exists():
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+    service = CSVService(str(project_path))
+    _project_services[project_name] = service
+    return service
+
 
 # Create FastAPI app
 app = FastAPI(title="Segment Editor API")
@@ -56,38 +73,62 @@ class SegmentResponse(BaseModel):
 
 # API Routes
 
-@app.get("/api/project")
-async def get_project_info():
+@app.get("/api/projects")
+async def list_projects():
+    """List all available projects with duration."""
+    import pandas as pd
+    projects = []
+    if PROJECTS_DIR.exists():
+        for d in sorted(PROJECTS_DIR.iterdir()):
+            if d.is_dir() and (d / "transcriptions" / "segments.csv").exists():
+                duration = 0.0
+                chunks_meta = d / "chunks" / "chunks_metadata.csv"
+                if chunks_meta.exists():
+                    try:
+                        df = pd.read_csv(chunks_meta)
+                        duration = float(df["End Time (s)"].max())
+                    except Exception:
+                        pass
+                projects.append({"name": d.name, "duration": duration})
+    return {"projects": projects, "total": len(projects)}
+
+
+@app.get("/api/{project_name}/project")
+async def get_project_info(project_name: str):
     """Get project information."""
-    project_path = Path(PROJECT_PATH)
+    get_service(project_name)  # validates project exists
+    project_path = PROJECTS_DIR / project_name
     return {
         "name": project_path.name,
         "path": str(project_path)
     }
 
 
-@app.get("/api/segments")
-async def get_segments(chunk_id: Optional[int] = None):
+@app.get("/api/{project_name}/segments")
+async def get_segments(project_name: str, chunk_id: Optional[int] = None):
     """Get all segments, optionally filtered by chunk_id."""
+    service = get_service(project_name)
     if chunk_id is not None:
-        segments = csv_service.get_segments_by_chunk(chunk_id)
+        segments = service.get_segments_by_chunk(chunk_id)
     else:
-        segments = csv_service.get_all_segments()
+        segments = service.get_all_segments()
     return {"segments": segments, "total": len(segments)}
 
 
-@app.get("/api/segments/{segment_id}")
-async def get_segment(segment_id: int):
+@app.get("/api/{project_name}/segments/{segment_id}")
+async def get_segment(project_name: str, segment_id: int):
     """Get a specific segment by ID."""
-    segment = csv_service.get_segment(segment_id)
+    service = get_service(project_name)
+    segment = service.get_segment(segment_id)
     if segment is None:
         raise HTTPException(status_code=404, detail="Segment not found")
     return segment
 
 
-@app.put("/api/segments/{segment_id}")
-async def update_segment(segment_id: int, update: SegmentUpdate):
+@app.put("/api/{project_name}/segments/{segment_id}")
+async def update_segment(project_name: str, segment_id: int, update: SegmentUpdate):
     """Update a segment's start_sec, end_sec, or text."""
+    service = get_service(project_name)
     updates = {}
     if update.start_sec is not None:
         updates["start_sec"] = update.start_sec
@@ -99,42 +140,46 @@ async def update_segment(segment_id: int, update: SegmentUpdate):
     if not updates:
         raise HTTPException(status_code=400, detail="No valid updates provided")
 
-    result = csv_service.update_segment(segment_id, updates)
+    result = service.update_segment(segment_id, updates)
     if result is None:
         raise HTTPException(status_code=404, detail="Segment not found")
 
     return {"success": True, "segment": result}
 
 
-@app.delete("/api/segments/{segment_id}")
-async def delete_segment(segment_id: int):
+@app.delete("/api/{project_name}/segments/{segment_id}")
+async def delete_segment(project_name: str, segment_id: int):
     """Delete a segment from the CSV."""
-    result = csv_service.delete_segment(segment_id)
+    service = get_service(project_name)
+    result = service.delete_segment(segment_id)
     if not result:
         raise HTTPException(status_code=404, detail="Segment not found")
     return {"success": True, "deleted_segment_id": segment_id}
 
 
-@app.get("/api/chunks")
-async def get_chunks():
+@app.get("/api/{project_name}/chunks")
+async def get_chunks(project_name: str):
     """Get all chunks metadata."""
-    chunks = csv_service.get_all_chunks()
+    service = get_service(project_name)
+    chunks = service.get_all_chunks()
     return {"chunks": chunks, "total": len(chunks)}
 
 
-@app.get("/api/chunks/{chunk_id}")
-async def get_chunk(chunk_id: int):
+@app.get("/api/{project_name}/chunks/{chunk_id}")
+async def get_chunk(project_name: str, chunk_id: int):
     """Get a specific chunk by ID."""
-    chunk = csv_service.get_chunk(chunk_id)
+    service = get_service(project_name)
+    chunk = service.get_chunk(chunk_id)
     if chunk is None:
         raise HTTPException(status_code=404, detail="Chunk not found")
     return chunk
 
 
-@app.get("/api/audio/{chunk_id}")
-async def stream_audio(chunk_id: int, request: Request):
+@app.get("/api/{project_name}/audio/{chunk_id}")
+async def stream_audio(project_name: str, chunk_id: int, request: Request):
     """Stream audio file with Range header support for seeking."""
-    chunk_path = csv_service.get_chunk_file_path(chunk_id)
+    service = get_service(project_name)
+    chunk_path = service.get_chunk_file_path(chunk_id)
     if chunk_path is None or not chunk_path.exists():
         raise HTTPException(status_code=404, detail="Audio file not found")
 

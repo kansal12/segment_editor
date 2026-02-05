@@ -157,7 +157,16 @@ class CSVService:
     def get_chunk_file_path(self, chunk_id: int) -> Optional[Path]:
         """Get the file path for a chunk's audio file."""
         chunk = self.get_chunk(chunk_id)
-        
-        if chunk:
-            return Path(chunk["file_path"])
-        return None
+        if not chunk:
+            return None
+
+        path = Path(chunk["file_path"])
+        if path.exists():
+            return path
+
+        # Fallback: try the filename in this project's chunks directory
+        fallback = self.project_path / "chunks" / path.name
+        if fallback.exists():
+            return fallback
+
+        return path

@@ -1,0 +1,15 @@
+[Unit]
+Description=Segment Editor Server
+After=network.target
+
+[Service]
+Type=simple
+User=kansal
+WorkingDirectory=/storage6/segment_editor/backend
+ExecStart=/storage6/segment_editor/venv/bin/python /storage6/segment_editor/run.py
+Restart=always
+RestartSec=5
+Environment=SEGMENT_EDITOR_PROJECTS_DIR=/storage6/dubbing_projects
+
+[Install]
+WantedBy=multi-user.target

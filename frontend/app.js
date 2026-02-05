@@ -3,8 +3,12 @@
  * Waveform-based audio segment editing tool
  */
 
+// Get project name from URL query parameter
+const projectName = new URLSearchParams(window.location.search).get('project');
+
 // Global state
 const state = {
+    projectName: projectName,
     chunks: [],
     segments: [],
     currentChunkId: 1,
@@ -48,23 +52,33 @@ const elements = {
 
 // API Functions
 const api = {
+    async getProjects() {
+        const response = await fetch('api/projects');
+        return response.json();
+    },
+
     async getProject() {
-        const response = await fetch('/api/project');
+        const response = await fetch(`api/${state.projectName}/project`);
         return response.json();
     },
 
     async getChunks() {
-        const response = await fetch('/api/chunks');
+        const response = await fetch(`api/${state.projectName}/chunks`);
         return response.json();
     },
 
     async getSegments(chunkId) {
-        const response = await fetch(`/api/segments?chunk_id=${chunkId}`);
+        const response = await fetch(`api/${state.projectName}/segments?chunk_id=${chunkId}`);
+        return response.json();
+    },
+
+    async getAllSegments() {
+        const response = await fetch(`api/${state.projectName}/segments`);
         return response.json();
     },
 
     async updateSegment(segmentId, updates) {
-        const response = await fetch(`/api/segments/${segmentId}`, {
+        const response = await fetch(`api/${state.projectName}/segments/${segmentId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates),
@@ -73,11 +87,11 @@ const api = {
     },
 
     getAudioUrl(chunkId) {
-        return `/api/audio/${chunkId}`;
+        return `api/${state.projectName}/audio/${chunkId}`;
     },
 
     async deleteSegment(segmentId) {
-        const response = await fetch(`/api/segments/${segmentId}`, {
+        const response = await fetch(`api/${state.projectName}/segments/${segmentId}`, {
             method: 'DELETE',
         });
         return response.json();
@@ -559,8 +573,6 @@ function centerOnTime(timeRatio, pxPerSec, containerWidth) {
 function renderTable() {
     elements.segmentsBody.innerHTML = '';
 
-    const chunkStart = state.currentChunk?.start_time || 0;
-
     state.segments.forEach(segment => {
         const row = document.createElement('tr');
         row.dataset.segmentId = segment.segment_id;
@@ -573,10 +585,8 @@ function renderTable() {
             row.classList.add('selected');
         }
 
-        // const localStart = segment.start_sec - chunkStart;
-        // const localEnd = segment.end_sec - chunkStart;
-        const localStart = segment.start_sec ;
-        const localEnd = segment.end_sec ;
+        const localStart = segment.start_sec;
+        const localEnd = segment.end_sec;
 
         row.innerHTML = `
             <td class="col-id">${segment.segment_id}</td>
@@ -614,11 +624,8 @@ function updateTableRow(segmentId) {
     const row = document.querySelector(`#segmentsBody tr[data-segment-id="${segmentId}"]`);
     if (!row) return;
 
-    const chunkStart = state.currentChunk?.start_time || 0;
     const localStart = segment.start_sec;
-    const localEnd = segment.end_sec ;
-    // const localStart = segment.start_sec - chunkStart;
-    // const localEnd = segment.end_sec - chunkStart;
+    const localEnd = segment.end_sec;
 
     row.querySelector('.col-start').textContent = localStart.toFixed(2);
     row.querySelector('.col-end').textContent = localEnd.toFixed(2);
@@ -687,13 +694,13 @@ function startTextEdit(cell, segment) {
     });
 }
 
-// Text editing
+// Time cell editing
 function startTimeEdit(cell, segment) {
     if (cell.classList.contains('editing')) return;
     const isStart = cell.classList.contains('col-start');
 
     cell.classList.add('editing');
-    const originalTime = isStart? segment.start_sec : segment.end_sec ;
+    const originalTime = isStart ? segment.start_sec : segment.end_sec;
 
     const input = document.createElement('input');
     input.type = 'text';
@@ -712,23 +719,23 @@ function startTimeEdit(cell, segment) {
         cell.textContent = save ? newTime : originalTime.toFixed(2);
 
         if (save && newTime !== originalTime.toFixed(2)) {
-
             // Save to undo stack
             state.undoStack.push({
                 segmentId: segment.segment_id,
-                time: originalTime.toFixed(2),
+                oldStart: segment.start_sec,
+                oldEnd: segment.end_sec,
             });
             elements.undoBtn.disabled = false;
 
             // Update local state
-            if(isStart){
-                segment.start_time = parseFloat(newTime);
-            }else{
-                segment.end_time = parseFloat(newTime);
+            if (isStart) {
+                segment.start_sec = parseFloat(newTime);
+            } else {
+                segment.end_sec = parseFloat(newTime);
             }
 
             // Save to server
-            await saveSegmentUpdate(segment.segment_id, { start_time: segment.start_time, end_time: segment.end_time });
+            await saveSegmentUpdate(segment.segment_id, { start_sec: segment.start_sec, end_sec: segment.end_sec });
         }
     };
 
@@ -876,8 +883,7 @@ async function undo() {
 // Jump to segment
 function jumpToSegment(segmentId) {
     // Find segment
-    const allSegmentsResponse = fetch('/api/segments')
-        .then(r => r.json())
+    api.getAllSegments()
         .then(data => {
             const segment = data.segments.find(s => s.segment_id === segmentId);
             if (segment) {
@@ -1048,15 +1054,72 @@ function setupEventListeners() {
     });
 }
 
+// Format duration in seconds to HH:MM:SS
+function formatDuration(totalSec) {
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = Math.floor(totalSec % 60);
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+}
+
+// Show project selector
+async function showProjectSelector() {
+    const appContainer = document.querySelector('.app-container');
+    const editorContent = document.getElementById('editorContent');
+    if (editorContent) editorContent.style.display = 'none';
+
+    const selector = document.createElement('div');
+    selector.className = 'project-selector';
+    selector.innerHTML = '<h2>Loading projects...</h2>';
+    appContainer.appendChild(selector);
+
+    try {
+        const data = await api.getProjects();
+        const projects = data.projects;
+
+        selector.innerHTML = `
+            <div class="project-dropdown">
+                <input type="text" id="projectSearch" class="project-search" placeholder="Search projects..." autocomplete="off">
+                <div class="project-dropdown-list" id="projectDropdownList">
+                    ${projects.map(p => `
+                        <a href="?project=${encodeURIComponent(p.name)}" class="project-item" data-name="${p.name.toLowerCase()}">
+                            <span class="project-item-name">${p.name}</span>
+                            <span class="project-item-duration">${formatDuration(p.duration)}</span>
+                        </a>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+
+        // Filter logic
+        const searchInput = document.getElementById('projectSearch');
+        const list = document.getElementById('projectDropdownList');
+        searchInput.focus();
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase();
+            list.querySelectorAll('.project-item').forEach(item => {
+                item.style.display = item.dataset.name.includes(query) ? '' : 'none';
+            });
+        });
+    } catch (error) {
+        selector.innerHTML = '<h2>Failed to load projects</h2>';
+    }
+}
+
 // Initialize application
 async function init() {
+    if (!state.projectName) {
+        showProjectSelector();
+        return;
+    }
+
     try {
-        // Load project info (non-blocking)
-        api.getProject().then(projectData => {
-            elements.projectName.textContent = projectData.name;
-        }).catch(err => {
-            console.warn('Could not load project info:', err);
-        });
+        // Set project name in header
+        elements.projectName.textContent = state.projectName;
+        document.title = `Segment Editor - ${state.projectName}`;
 
         // Load chunks metadata
         const chunksData = await api.getChunks();

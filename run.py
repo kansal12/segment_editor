@@ -3,10 +3,10 @@
 Segment Editor Server Startup Script
 
 Usage:
-    python run.py [--port PORT] [--host HOST] [--project PATH]
+    python run.py [--port PORT] [--host HOST] [--projects-dir PATH]
 
 Example:
-    python run.py --port 8765 --host 0.0.0.0 --project /storage6/dubbing_projects/fp
+    python run.py --projects-dir /storage6/dubbing_projects
 """
 
 import argparse
@@ -17,6 +17,8 @@ from pathlib import Path
 # Add backend to path
 backend_path = Path(__file__).parent / "backend"
 sys.path.insert(0, str(backend_path))
+
+NGINX_DOMAIN = "platyserver.ddns.net"
 
 
 def main():
@@ -34,10 +36,10 @@ def main():
         help="Host to bind to (default: 0.0.0.0 for all interfaces)"
     )
     parser.add_argument(
-        "--project",
+        "--projects-dir",
         type=str,
-        default="/storage6/dubbing_projects/fp",
-        help="Path to the dubbing project"
+        default="/storage6/dubbing_projects",
+        help="Base directory containing all projects"
     )
     parser.add_argument(
         "--reload",
@@ -46,27 +48,27 @@ def main():
     )
     args = parser.parse_args()
 
-    # Set environment variable for project path
-    os.environ["SEGMENT_EDITOR_PROJECT_PATH"] = args.project
+    # Set environment variable for projects directory
+    os.environ["SEGMENT_EDITOR_PROJECTS_DIR"] = args.projects_dir
 
-    # Verify project exists
-    project_path = Path(args.project)
-    segments_path = project_path / "transcriptions" / "segments.csv"
-    chunks_path = project_path / "chunks"
-
-    if not segments_path.exists():
-        print(f"Error: segments.csv not found at {segments_path}")
+    # Verify projects directory exists
+    projects_dir = Path(args.projects_dir)
+    if not projects_dir.exists():
+        print(f"Error: Projects directory not found at {projects_dir}")
         sys.exit(1)
 
-    if not chunks_path.exists():
-        print(f"Error: chunks directory not found at {chunks_path}")
-        sys.exit(1)
+    # Count available projects
+    projects = [d for d in projects_dir.iterdir()
+                if d.is_dir() and (d / "transcriptions" / "segments.csv").exists()]
 
     print(f"Starting Segment Editor...")
-    print(f"  Project: {args.project}")
+    print(f"  Projects dir: {args.projects_dir}")
+    print(f"  Available projects: {len(projects)}")
+    print(f"  Port: {args.port}")
     print(f"")
     print(f"Open in your browser:")
     print(f"")
+    print(f"  https://{NGINX_DOMAIN}/editor/")
     print(f"  http://localhost:{args.port}")
     print(f"")
     print(f"Press Ctrl+C to stop")
