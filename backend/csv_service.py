@@ -29,12 +29,22 @@ class CSVService:
 
         # Cache for segments DataFrame
         self._segments_df: Optional[pd.DataFrame] = None
+        self._segments_mtime: Optional[float] = None
         self._chunks_df: Optional[pd.DataFrame] = None
 
     def load_segments(self, force_reload: bool = False) -> pd.DataFrame:
-        """Load segments from CSV file."""
+        """Load segments from CSV file. Auto-reloads if file changed on disk."""
+        if not force_reload and self._segments_df is not None:
+            # Check if file was modified externally (e.g. re-transcription)
+            try:
+                current_mtime = self.segments_path.stat().st_mtime
+                if current_mtime != self._segments_mtime:
+                    force_reload = True
+            except FileNotFoundError:
+                pass
         if self._segments_df is None or force_reload:
             self._segments_df = pd.read_csv(self.segments_path)
+            self._segments_mtime = self.segments_path.stat().st_mtime
             # Create original backup if it doesn't exist (first time editing)
             self._ensure_original_backup()
         return self._segments_df.copy()
@@ -153,6 +163,7 @@ class CSVService:
 
         # Atomic rename
         temp_path.replace(self.segments_path)
+        self._segments_mtime = self.segments_path.stat().st_mtime
 
     def get_chunk_file_path(self, chunk_id: int) -> Optional[Path]:
         """Get the file path for a chunk's audio file."""

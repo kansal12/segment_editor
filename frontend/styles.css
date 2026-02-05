@@ -414,6 +414,16 @@ kbd {
     width: 4px !important;
 }
 
+.region-label {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.8);
+    padding: 1px 4px;
+    pointer-events: none;
+    position: absolute;
+    top: 2px;
+    left: 4px;
+}
+
 /* Scrollbar styling */
 .table-container::-webkit-scrollbar {
     width: 8px;

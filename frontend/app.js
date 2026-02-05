@@ -202,6 +202,10 @@ function createRegions() {
         const isGap = segment.gap_type && segment.gap_type !== '';
         const isSelected = segment.segment_id === state.selectedSegmentId;
 
+        const label = document.createElement('span');
+        label.className = 'region-label';
+        label.textContent = segment.segment_id;
+
         const region = state.regions.addRegion({
             id: segment.segment_id.toString(),
             start: Math.max(0, localStart),
@@ -209,6 +213,7 @@ function createRegions() {
             color: isGap ? 'rgba(136, 136, 136, 0.3)' : 'rgba(79, 74, 133, 0.4)',
             drag: true,
             resize: true,
+            content: label,
         });
 
         // Listen for live updates during drag/resize
