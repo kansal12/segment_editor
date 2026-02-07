@@ -153,10 +153,11 @@ class CSVService:
         backup_path = self.backup_dir / f"segments_{timestamp}.csv"
 
         # Copy current file to backup (timestamped and previous)
+        # Use shutil.copy instead of copy2 to avoid PermissionError on some filesystems
         if self.segments_path.exists():
-            shutil.copy2(self.segments_path, backup_path)
+            shutil.copy(self.segments_path, backup_path)
             # Also save as segments_previous.csv (last saved version)
-            shutil.copy2(self.segments_path, self.segments_previous_path)
+            shutil.copy(self.segments_path, self.segments_previous_path)
 
         # Write to temp file first
         temp_path = self.segments_path.with_suffix(".tmp")

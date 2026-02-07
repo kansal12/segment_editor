@@ -24,14 +24,19 @@ _project_services: dict[str, CSVService] = {}
 
 def get_service(project_name: str) -> CSVService:
     """Get or create a CSVService for the given project."""
-    if project_name in _project_services:
-        return _project_services[project_name]
-
     project_path = PROJECTS_DIR / project_name
     segments_path = project_path / "transcriptions" / "segments.csv"
 
     if not segments_path.exists():
         raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+    # Check if cached service still has valid path (handles project rename)
+    if project_name in _project_services:
+        cached_service = _project_services[project_name]
+        if cached_service.project_path == project_path:
+            return cached_service
+        # Path changed (project was renamed), invalidate cache
+        del _project_services[project_name]
 
     service = CSVService(str(project_path))
     _project_services[project_name] = service
