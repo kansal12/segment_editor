@@ -86,7 +86,8 @@ const api = {
     },
 
     getAudioUrl(chunkId) {
-        return `api/${state.projectName}/audio/${chunkId}`;
+        return `api/${state.projectName}/audio-only/${chunkId}`;
+        // return `api/${state.projectName}/audio/${chunkId}`;
     },
 
     async deleteSegment(segmentId) {

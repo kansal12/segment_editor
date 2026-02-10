@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+import subprocess
 
 import aiofiles
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -243,6 +244,49 @@ async def stream_audio(project_name: str, chunk_id: int, request: Request):
         headers={"Accept-Ranges": "bytes"}
     )
 
+
+@app.get("/api/{project_name}/audio-only/{chunk_id}")
+async def stream_audio_only(project_name: str, chunk_id: int, request: Request):
+    service = get_service(project_name)
+    chunk_path = service.get_chunk_file_path(chunk_id)
+
+    if chunk_path is None or not chunk_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found")
+
+    def audio_stream():
+        cmd = [
+            "ffmpeg",
+            "-i", str(chunk_path),
+            "-vn",                 # ❌ remove video
+            "-acodec", "mp3",      # or "aac"
+            "-ab", "128k",
+            "-f", "mp3",
+            "pipe:1"
+        ]
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+
+        try:
+            while True:
+                data = process.stdout.read(8192)
+                if not data:
+                    break
+                yield data
+        finally:
+            process.kill()
+
+    return StreamingResponse(
+        audio_stream(),
+        media_type="audio/mpeg",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-cache"
+        }
+    )
 
 # Mount frontend static files (must be last)
 frontend_path = Path(__file__).parent.parent / "frontend"
