@@ -181,6 +181,15 @@ function initWaveSurfer() {
         e.stopPropagation();
         selectSegment(region.id);
     });
+    state.regions.on("region-out", (region) => {
+        if (
+          state.wavesurfer &&
+          state.wavesurfer.getCurrentTime() > region.end &&
+          state.selectedSegmentId == region.id
+        ) {
+          state.wavesurfer.pause();
+        }
+    })
 
     state.regions.on('region-updated', (region) => {
         handleRegionUpdate(region);
