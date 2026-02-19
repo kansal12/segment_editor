@@ -42,6 +42,12 @@ def main():
         help="Base directory containing all projects"
     )
     parser.add_argument(
+        "--workspace-dir",
+        type=str,
+        default="/storage6/dubbing_projects",
+        help="Base directory containing all projects"
+    )
+    parser.add_argument(
         "--reload",
         action="store_true",
         help="Enable auto-reload for development"
@@ -50,19 +56,25 @@ def main():
 
     # Set environment variable for projects directory
     os.environ["SEGMENT_EDITOR_PROJECTS_DIR"] = args.projects_dir
+    os.environ["SEGMENT_EDITOR_WORKSPACE_DIR"] = args.workspace_dir
 
     # Verify projects directory exists
-    projects_dir = Path(args.projects_dir)
-    if not projects_dir.exists():
-        print(f"Error: Projects directory not found at {projects_dir}")
+    workspace_dir = Path(args.workspace_dir)
+    if not workspace_dir.exists():
+        print(f"Error: workspace directory not found at {workspace_dir}")
         sys.exit(1)
 
     # Count available projects
-    projects = [d for d in projects_dir.iterdir()
-                if d.is_dir() and (d / "transcriptions" / "segments.csv").exists()]
+    projects = [
+        d
+        for projects_dir in  workspace_dir.iterdir()      # project_dir/*
+        if projects_dir.is_dir()
+        for d in projects_dir.iterdir()                 # project_dir/*/*
+        if d.is_dir() and (d / "transcriptions" / "segments.csv").exists()
+    ]
 
     print(f"Starting Segment Editor...")
-    print(f"  Projects dir: {args.projects_dir}")
+    print(f"  Workspace dir: {args.workspace_dir}")
     print(f"  Available projects: {len(projects)}")
     print(f"  Port: {args.port}")
     print(f"")

@@ -18,14 +18,31 @@ PROJECTS_DIR = Path(os.environ.get(
     "SEGMENT_EDITOR_PROJECTS_DIR",
     "/storage6/dubbing_projects"
 ))
+WORKSPACE_DIR = Path(os.environ.get(
+    "SEGMENT_EDITOR_WORKSPACE_DIR",
+    "/storage6/dubbing_projects"
+))
 
 # Cache of CSVService instances per project
 _project_services: dict[str, CSVService] = {}
 
+def get_project_path(project_name: str) -> Optional[Path]:
+    """Find the project path for a given project name."""
+    for projects_dir in  WORKSPACE_DIR.iterdir():    # project_dir/*
+        if projects_dir.is_dir():
+            for d in projects_dir.iterdir():                 # project_dir/*/*
+                if d.is_dir() and d.name == project_name and (d / "transcriptions" / "segments.csv").exists():
+                    return d
+    return None
+
 
 def get_service(project_name: str) -> CSVService:
     """Get or create a CSVService for the given project."""
-    project_path = PROJECTS_DIR / project_name
+    project_path = get_project_path(project_name)
+    if project_path is None:
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+    
     segments_path = project_path / "transcriptions" / "segments.csv"
 
     if not segments_path.exists():
@@ -84,18 +101,20 @@ async def list_projects():
     """List all available projects with duration."""
     import pandas as pd
     projects = []
-    if PROJECTS_DIR.exists():
-        for d in sorted(PROJECTS_DIR.iterdir()):
-            if d.is_dir() and (d / "transcriptions" / "segments.csv").exists():
-                duration = 0.0
-                chunks_meta = d / "chunks" / "chunks_metadata.csv"
-                if chunks_meta.exists():
-                    try:
-                        df = pd.read_csv(chunks_meta)
-                        duration = float(df["End Time (s)"].max())
-                    except Exception:
-                        pass
-                projects.append({"name": d.name, "duration": duration})
+    if WORKSPACE_DIR.exists():
+        for projects_dir in  WORKSPACE_DIR.iterdir():      # project_dir/*
+            if projects_dir.is_dir():
+                for d in sorted(projects_dir.iterdir()):
+                    if d.is_dir() and (d / "transcriptions" / "segments.csv").exists():
+                        duration = 0.0
+                        chunks_meta = d / "chunks" / "chunks_metadata.csv"
+                        if chunks_meta.exists():
+                            try:
+                                df = pd.read_csv(chunks_meta)
+                                duration = float(df["End Time (s)"].max())
+                            except Exception:
+                                pass
+                        projects.append({"name": d.name, "duration": duration})
     return {"projects": projects, "total": len(projects)}
 
 
@@ -103,7 +122,8 @@ async def list_projects():
 async def get_project_info(project_name: str):
     """Get project information."""
     get_service(project_name)  # validates project exists
-    project_path = PROJECTS_DIR / project_name
+    
+    project_path = get_project_path(project_name)
     return {
         "name": project_path.name,
         "path": str(project_path)
