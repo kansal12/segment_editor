@@ -80,6 +80,15 @@ class SegmentUpdate(BaseModel):
     start_sec: Optional[float] = None
     end_sec: Optional[float] = None
     text: Optional[str] = None
+    speaker: Optional[str] = None
+
+
+class SegmentCreate(BaseModel):
+    """Model for segment creation requests."""
+    chunk_id: int
+    start_sec: float
+    end_sec: float
+    text: str = ""
 
 
 class SegmentResponse(BaseModel):
@@ -98,24 +107,30 @@ class SegmentResponse(BaseModel):
 
 @app.get("/api/projects")
 async def list_projects():
-    """List all available projects with duration."""
+    """List all available projects grouped by workspace."""
     import pandas as pd
-    projects = []
+    workspaces = []
+    total = 0
     if WORKSPACE_DIR.exists():
-        for projects_dir in  WORKSPACE_DIR.iterdir():      # project_dir/*
-            if projects_dir.is_dir():
-                for d in sorted(projects_dir.iterdir()):
-                    if d.is_dir() and (d / "transcriptions" / "segments.csv").exists():
-                        duration = 0.0
-                        chunks_meta = d / "chunks" / "chunks_metadata.csv"
-                        if chunks_meta.exists():
-                            try:
-                                df = pd.read_csv(chunks_meta)
-                                duration = float(df["End Time (s)"].max())
-                            except Exception:
-                                pass
-                        projects.append({"name": d.name, "duration": duration})
-    return {"projects": projects, "total": len(projects)}
+        for workspace_dir in sorted(WORKSPACE_DIR.iterdir()):
+            if not workspace_dir.is_dir():
+                continue
+            projects = []
+            for d in sorted(workspace_dir.iterdir()):
+                if d.is_dir() and (d / "transcriptions" / "segments.csv").exists():
+                    duration = 0.0
+                    chunks_meta = d / "chunks" / "chunks_metadata.csv"
+                    if chunks_meta.exists():
+                        try:
+                            df = pd.read_csv(chunks_meta)
+                            duration = float(df["End Time (s)"].max())
+                        except Exception:
+                            pass
+                    projects.append({"name": d.name, "duration": duration})
+            if projects:
+                workspaces.append({"name": workspace_dir.name, "projects": projects})
+                total += len(projects)
+    return {"workspaces": workspaces, "total": total}
 
 
 @app.get("/api/{project_name}/project")
@@ -141,6 +156,19 @@ async def get_segments(project_name: str, chunk_id: Optional[int] = None):
     return {"segments": segments, "total": len(segments)}
 
 
+@app.post("/api/{project_name}/segments")
+async def create_segment(project_name: str, body: SegmentCreate):
+    """Create a new segment."""
+    service = get_service(project_name)
+    segment = service.add_segment(
+        chunk_id=body.chunk_id,
+        start_sec=body.start_sec,
+        end_sec=body.end_sec,
+        text=body.text,
+    )
+    return {"success": True, "segment": segment}
+
+
 @app.get("/api/{project_name}/segments/{segment_id}")
 async def get_segment(project_name: str, segment_id: int):
     """Get a specific segment by ID."""
@@ -153,7 +181,7 @@ async def get_segment(project_name: str, segment_id: int):
 
 @app.put("/api/{project_name}/segments/{segment_id}")
 async def update_segment(project_name: str, segment_id: int, update: SegmentUpdate):
-    """Update a segment's start_sec, end_sec, or text."""
+    """Update a segment's start_sec, end_sec, text, or speaker."""
     service = get_service(project_name)
     updates = {}
     if update.start_sec is not None:
@@ -162,6 +190,8 @@ async def update_segment(project_name: str, segment_id: int, update: SegmentUpda
         updates["end_sec"] = update.end_sec
     if update.text is not None:
         updates["text"] = update.text
+    if update.speaker is not None:
+        updates["speaker"] = update.speaker
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid updates provided")

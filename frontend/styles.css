@@ -100,6 +100,15 @@ body {
     background: #5d58a0;
 }
 
+.btn-primary.drawing {
+    background: #f0ad4e;
+    color: #000;
+}
+
+.btn-primary.drawing:hover {
+    background: #ec971f;
+}
+
 .btn-secondary {
     background: #333;
     color: white;
@@ -345,6 +354,33 @@ body {
     font-size: 0.875rem;
 }
 
+.col-speaker {
+    width: 120px;
+    font-size: 0.85rem;
+}
+
+.speaker-cell {
+    cursor: pointer;
+}
+
+.speaker-cell:hover {
+    background: rgba(79, 74, 133, 0.3);
+}
+
+.speaker-cell.editing {
+    padding: 0;
+}
+
+.speaker-cell.editing select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 2px solid #4F4A85;
+    background: #1a1a2e;
+    color: white;
+    font-size: inherit;
+    outline: none;
+}
+
 .col-text {
     max-width: 0;
     overflow: hidden;
@@ -524,6 +560,64 @@ kbd {
 .project-dropdown-list::-webkit-scrollbar-thumb {
     background: #4F4A85;
     border-radius: 3px;
+}
+
+/* Workspace items */
+.workspace-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #1a1a2e;
+    transition: background 0.15s;
+}
+
+.workspace-item:last-child {
+    border-bottom: none;
+}
+
+.workspace-item:hover {
+    background: #1a2745;
+}
+
+.workspace-item-name {
+    color: #eee;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.workspace-item-count {
+    color: #7f8c8d;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    margin-left: 16px;
+}
+
+.project-dropdown-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #16213e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px 8px 0 0;
+    border-bottom: none;
+}
+
+.project-dropdown-header + .project-search {
+    border-radius: 0;
+}
+
+.project-dropdown-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #a29bfe;
+}
+
+.back-btn {
+    font-size: 0.85rem;
+    padding: 4px 10px;
 }
 
 /* Loading state */

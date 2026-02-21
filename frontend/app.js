@@ -21,6 +21,8 @@ const state = {
     hasUnsavedChanges: false,
     playSelectedEndTime: null, // End time for play-selected mode
     playSelectedListener: null, // Listener for stopping at region end
+    drawingMode: false, // Whether we're in segment-drawing mode
+    drawingCleanup: null, // Cleanup function for drag selection
 };
 
 // DOM Elements
@@ -45,6 +47,7 @@ const elements = {
     chunkPath: document.getElementById('chunkPath'),
     saveBtn: document.getElementById('saveBtn'),
     undoBtn: document.getElementById('undoBtn'),
+    addBtn: document.getElementById('addBtn'),
     deleteBtn: document.getElementById('deleteBtn'),
     projectName: document.getElementById('projectName'),
 };
@@ -88,6 +91,15 @@ const api = {
     getAudioUrl(chunkId) {
         return `api/${state.projectName}/audio-only/${chunkId}`;
         // return `api/${state.projectName}/audio/${chunkId}`;
+    },
+
+    async createSegment(data) {
+        const response = await fetch(`api/${state.projectName}/segments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        return response.json();
     },
 
     async deleteSegment(segmentId) {
@@ -487,6 +499,85 @@ async function finalizeDeletes() {
     }
 }
 
+// Toggle segment drawing mode
+function toggleDrawingMode() {
+    if (!state.wavesurfer || !state.currentChunk) return;
+
+    if (state.drawingMode) {
+        exitDrawingMode();
+    } else {
+        enterDrawingMode();
+    }
+}
+
+function enterDrawingMode() {
+    state.drawingMode = true;
+    elements.addBtn.textContent = 'Cancel Drawing';
+    elements.addBtn.classList.add('drawing');
+    setStatus('Drag on the waveform to select a region for the new segment', '');
+
+    // Enable drag selection on the waveform
+    state.drawingCleanup = state.regions.enableDragSelection({
+        color: 'rgba(0, 255, 100, 0.3)',
+    });
+
+    // Listen for newly created region
+    state.regions.on('region-created', handleDrawnRegion);
+}
+
+function exitDrawingMode() {
+    state.drawingMode = false;
+    elements.addBtn.textContent = 'Add Segment';
+    elements.addBtn.classList.remove('drawing');
+    setStatus('', '');
+
+    // Disable drag selection (enableDragSelection returns a cleanup function)
+    if (state.drawingCleanup) {
+        state.drawingCleanup();
+        state.drawingCleanup = null;
+    }
+
+    state.regions.un('region-created', handleDrawnRegion);
+}
+
+async function handleDrawnRegion(region) {
+    // Ignore regions created by createRegions() (they have numeric IDs matching segment IDs)
+    if (!state.drawingMode) return;
+
+    const chunkStart = state.currentChunk.start_time;
+    const startSec = region.start + chunkStart;
+    const endSec = region.end + chunkStart;
+
+    // Remove the temporary drawn region
+    region.remove();
+
+    // Exit drawing mode
+    exitDrawingMode();
+
+    setStatus('Adding segment...', 'saving');
+    try {
+        const result = await api.createSegment({
+            chunk_id: state.currentChunkId,
+            start_sec: startSec,
+            end_sec: endSec,
+            text: '',
+        });
+
+        if (result.success) {
+            // Reload segments for current chunk
+            const segmentsData = await api.getSegments(state.currentChunkId);
+            state.segments = segmentsData.segments;
+            renderTable();
+            createRegions();
+            selectSegment(result.segment.segment_id);
+            setStatus('Segment added', 'saved');
+        }
+    } catch (error) {
+        console.error('Failed to add segment:', error);
+        setStatus('Failed to add segment', 'error');
+    }
+}
+
 // Highlight region on waveform
 function highlightRegion(segmentId) {
     const regions = state.regions.getRegions();
@@ -613,19 +704,24 @@ function renderTable() {
             <td class="col-id">${segment.segment_id}</td>
             <td class="col-start time-cell">${localStart.toFixed(2)}</td>
             <td class="col-end time-cell">${localEnd.toFixed(2)}</td>
+            <td class="col-speaker speaker-cell">${escapeHtml(segment.speaker || '')}</td>
             <td class="col-text text-cell" data-segment-id="${segment.segment_id}">${escapeHtml(segment.text || '')}</td>
         `;
 
         // Row click to select
         row.addEventListener('click', (e) => {
-            if (!e.target.classList.contains('text-cell') || e.target.classList.contains('editing')) {
-                selectSegment(segment.segment_id);
-            }
+            if (e.target.classList.contains('text-cell') && !e.target.classList.contains('editing')) return;
+            if (e.target.classList.contains('speaker-cell') && !e.target.classList.contains('editing')) return;
+            selectSegment(segment.segment_id);
         });
 
         // Double-click on text cell to edit
         const textCell = row.querySelector('.text-cell');
         textCell.addEventListener('dblclick', () => startTextEdit(textCell, segment));
+
+        // Double-click on speaker cell to edit via dropdown
+        const speakerCell = row.querySelector('.speaker-cell');
+        speakerCell.addEventListener('dblclick', () => startSpeakerEdit(speakerCell, segment));
 
         // Double-click time cells to edit
         const timeCells = row.querySelectorAll('.time-cell');
@@ -768,6 +864,63 @@ function startTimeEdit(cell, segment) {
         } else if (e.key === 'Escape') {
             finishEdit(false);
         }
+    });
+}
+
+// Speaker dropdown editing
+function startSpeakerEdit(cell, segment) {
+    if (cell.classList.contains('editing')) return;
+
+    cell.classList.add('editing');
+    const originalSpeaker = segment.speaker || '';
+
+    // Collect unique speakers from all segments
+    const speakers = [...new Set(state.segments.map(s => s.speaker).filter(Boolean))].sort();
+
+    const select = document.createElement('select');
+    speakers.forEach(sp => {
+        const opt = document.createElement('option');
+        opt.value = sp;
+        opt.textContent = sp;
+        if (sp === originalSpeaker) opt.selected = true;
+        select.appendChild(opt);
+    });
+    // Option to type a new speaker
+    const newOpt = document.createElement('option');
+    newOpt.value = '__new__';
+    newOpt.textContent = '+ New speaker...';
+    select.appendChild(newOpt);
+
+    cell.innerHTML = '';
+    cell.appendChild(select);
+    select.focus();
+
+    const finishEdit = async (save) => {
+        if (!cell.classList.contains('editing')) return;
+        let newSpeaker = select.value;
+
+        if (save && newSpeaker === '__new__') {
+            const input = prompt('Enter new speaker name:');
+            if (input) {
+                newSpeaker = input.trim();
+            } else {
+                save = false;
+            }
+        }
+
+        cell.classList.remove('editing');
+        cell.textContent = save ? newSpeaker : originalSpeaker;
+
+        if (save && newSpeaker !== originalSpeaker) {
+            segment.speaker = newSpeaker;
+            await saveSegmentUpdate(segment.segment_id, { speaker: newSpeaker });
+        }
+    };
+
+    select.addEventListener('change', () => finishEdit(true));
+    select.addEventListener('blur', () => finishEdit(true));
+    select.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') finishEdit(false);
     });
 }
 
@@ -928,6 +1081,13 @@ function setupKeyboardShortcuts() {
         // Ignore if editing text
         if (e.target.tagName === 'INPUT') return;
 
+        // Cancel drawing mode on Escape
+        if (e.code === 'Escape' && state.drawingMode) {
+            e.preventDefault();
+            exitDrawingMode();
+            return;
+        }
+
         switch (e.code) {
             case 'Space':
                 e.preventDefault();
@@ -1059,6 +1219,8 @@ function setupEventListeners() {
 
     elements.undoBtn.addEventListener('click', undo);
 
+    elements.addBtn.addEventListener('click', toggleDrawingMode);
+
     elements.deleteBtn.addEventListener('click', deleteSelectedSegment);
 
     const finalizeBtn = document.getElementById('finalizeBtn');
@@ -1085,7 +1247,7 @@ function formatDuration(totalSec) {
     return `${s}s`;
 }
 
-// Show project selector
+// Show project selector (workspace-first, then projects)
 async function showProjectSelector() {
     const appContainer = document.querySelector('.app-container');
     const editorContent = document.getElementById('editorContent');
@@ -1093,41 +1255,75 @@ async function showProjectSelector() {
 
     const selector = document.createElement('div');
     selector.className = 'project-selector';
-    selector.innerHTML = '<h2>Loading projects...</h2>';
+    selector.innerHTML = '<h2>Loading workspaces...</h2>';
     appContainer.appendChild(selector);
 
     try {
         const data = await api.getProjects();
-        const projects = data.projects;
+        const workspaces = data.workspaces;
 
-        selector.innerHTML = `
-            <div class="project-dropdown">
-                <input type="text" id="projectSearch" class="project-search" placeholder="Search projects..." autocomplete="off">
-                <div class="project-dropdown-list" id="projectDropdownList">
-                    ${projects.map(p => `
-                        <a href="?project=${encodeURIComponent(p.name)}" class="project-item" data-name="${p.name.toLowerCase()}">
-                            <span class="project-item-name">${p.name}</span>
-                            <span class="project-item-duration">${formatDuration(p.duration)}</span>
-                        </a>
-                    `).join('')}
-                </div>
-            </div>
-        `;
-
-        // Filter logic
-        const searchInput = document.getElementById('projectSearch');
-        const list = document.getElementById('projectDropdownList');
-        searchInput.focus();
-
-        searchInput.addEventListener('input', () => {
-            const query = searchInput.value.toLowerCase();
-            list.querySelectorAll('.project-item').forEach(item => {
-                item.style.display = item.dataset.name.includes(query) ? '' : 'none';
-            });
-        });
+        showWorkspaceList(selector, workspaces);
     } catch (error) {
         selector.innerHTML = '<h2>Failed to load projects</h2>';
     }
+}
+
+function showWorkspaceList(selector, workspaces) {
+    selector.innerHTML = `
+        <div class="project-dropdown">
+            <div class="project-dropdown-list">
+                ${workspaces.map(w => `
+                    <div class="workspace-item" data-workspace="${w.name}">
+                        <span class="workspace-item-name">${w.name}</span>
+                        <span class="workspace-item-count">${w.projects.length} project${w.projects.length !== 1 ? 's' : ''}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    selector.querySelectorAll('.workspace-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const name = item.dataset.workspace;
+            const workspace = workspaces.find(w => w.name === name);
+            if (workspace) showProjectList(selector, workspaces, workspace);
+        });
+    });
+}
+
+function showProjectList(selector, workspaces, workspace) {
+    selector.innerHTML = `
+        <div class="project-dropdown">
+            <div class="project-dropdown-header">
+                <button class="btn btn-nav back-btn" id="backToWorkspaces">&lt; Back</button>
+                <span class="project-dropdown-title">${workspace.name}</span>
+            </div>
+            <input type="text" id="projectSearch" class="project-search" placeholder="Search projects..." autocomplete="off">
+            <div class="project-dropdown-list" id="projectDropdownList">
+                ${workspace.projects.map(p => `
+                    <a href="?project=${encodeURIComponent(p.name)}" class="project-item" data-name="${p.name.toLowerCase()}">
+                        <span class="project-item-name">${p.name}</span>
+                        <span class="project-item-duration">${formatDuration(p.duration)}</span>
+                    </a>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    document.getElementById('backToWorkspaces').addEventListener('click', () => {
+        showWorkspaceList(selector, workspaces);
+    });
+
+    const searchInput = document.getElementById('projectSearch');
+    const list = document.getElementById('projectDropdownList');
+    searchInput.focus();
+
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.toLowerCase();
+        list.querySelectorAll('.project-item').forEach(item => {
+            item.style.display = item.dataset.name.includes(query) ? '' : 'none';
+        });
+    });
 }
 
 // Initialize application

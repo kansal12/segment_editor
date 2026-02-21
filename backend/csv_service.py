@@ -111,7 +111,7 @@ class CSVService:
             return None
 
         # Update allowed fields
-        allowed_fields = {"start_sec", "end_sec", "text"}
+        allowed_fields = {"start_sec", "end_sec", "text", "speaker"}
         for key, value in updates.items():
             if key in allowed_fields and key in df.columns:
                 df.loc[idx[0], key] = value
@@ -123,6 +123,33 @@ class CSVService:
         self._segments_df = df
 
         return clean_dict(df.loc[idx[0]].to_dict())
+
+    def add_segment(self, chunk_id: int, start_sec: float, end_sec: float, text: str = "") -> dict:
+        """Add a new segment and save to CSV."""
+        df = self.load_segments(force_reload=True)
+
+        # Assign new segment_id
+        new_id = int(df["segment_id"].max()) + 1 if not df.empty else 1
+
+        # Build new row with all existing columns
+        new_row = {col: None for col in df.columns}
+        new_row["segment_id"] = new_id
+        new_row["chunk_id"] = chunk_id
+        new_row["start_sec"] = start_sec
+        new_row["end_sec"] = end_sec
+        new_row["text"] = text
+
+        # Append and sort by start_sec
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        df = df.sort_values("start_sec").reset_index(drop=True)
+
+        # Save with backup
+        self._save_with_backup(df)
+
+        # Update cache
+        self._segments_df = df
+
+        return clean_dict(df[df["segment_id"] == new_id].iloc[0].to_dict())
 
     def delete_segment(self, segment_id: int) -> bool:
         """Delete a segment from the CSV."""
