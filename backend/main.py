@@ -295,6 +295,32 @@ async def stream_audio(project_name: str, chunk_id: int, request: Request):
     )
 
 
+def _get_cached_audio(chunk_path: Path) -> Path:
+    """Return path to cached OGG audio, encoding it on first access."""
+    cache_dir = chunk_path.parent / ".audio_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cached = cache_dir / (chunk_path.stem + ".ogg")
+
+    # Re-encode only if cache is missing or stale
+    if not cached.exists() or cached.stat().st_mtime < chunk_path.stat().st_mtime:
+        tmp = cached.with_suffix(".ogg.tmp")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(chunk_path),
+            "-vn",
+            "-acodec", "libopus",
+            "-ab", "128k",
+            str(tmp),
+        ]
+        result = subprocess.run(cmd, stderr=subprocess.DEVNULL)
+        if result.returncode != 0 or not tmp.exists():
+            tmp.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail="Audio encoding failed")
+        tmp.rename(cached)
+
+    return cached
+
+
 @app.get("/api/{project_name}/audio-only/{chunk_id}")
 async def stream_audio_only(project_name: str, chunk_id: int, request: Request):
     service = get_service(project_name)
@@ -303,39 +329,12 @@ async def stream_audio_only(project_name: str, chunk_id: int, request: Request):
     if chunk_path is None or not chunk_path.exists():
         raise HTTPException(status_code=404, detail="Video file not found")
 
-    def audio_stream():
-        cmd = [
-            "ffmpeg",
-            "-i", str(chunk_path),
-            "-vn",                 # ❌ remove video
-            "-acodec", "mp3",      # or "aac"
-            "-ab", "128k",
-            "-f", "mp3",
-            "pipe:1"
-        ]
+    cached = _get_cached_audio(chunk_path)
 
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
-        )
-
-        try:
-            while True:
-                data = process.stdout.read(8192)
-                if not data:
-                    break
-                yield data
-        finally:
-            process.kill()
-
-    return StreamingResponse(
-        audio_stream(),
-        media_type="audio/mpeg",
-        headers={
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "no-cache"
-        }
+    return FileResponse(
+        cached,
+        media_type="audio/ogg",
+        headers={"Accept-Ranges": "bytes"}
     )
 
 # Mount frontend static files (must be last)
